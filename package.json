@@ -1,0 +1,7 @@
+{
+  "name": "polla-surmedia",
+  "version": "1.0.0",
+  "dependencies": {
+    "@netlify/functions": "^2.0.0"
+  }
+}
