@@ -252,7 +252,7 @@ html,body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--text)
   <div class="login-card">
     <span class="login-icon">⚽</span>
     <div class="login-logo"><span>SUR</span>MEDIA</div>
-    <div class="login-tagline">Polla Mundial 2026 · Solo para el equipo</div>
+    <div class="login-tagline">Polla Mundial 2026</div>
     <div class="login-err" id="login-err"></div>
     <div class="form-group">
       <label class="form-label">Correo corporativo</label>
@@ -558,18 +558,18 @@ function waitDB(){
 // Última actualización: Miércoles 24 Jun 2026
 // Resultados reales verificados via API oficial
 // La API los actualiza automáticamente — esto es solo el respaldo inicial
+// Resultados finales verificados via API — respaldo inmediato mientras Firebase sincroniza
 const PRELOADED_RESULTS = {
-  'g24a':{h:2,a:1},  // SUI 2-1 CAN  ✓
-  'g24b':{h:3,a:1},  // BIH 3-1 QAT  ✓
-  'g24c':{h:4,a:2},  // MAR 4-2 HTI  ✓
-  'g24d':{h:0,a:3},  // SCO 0-3 BRA  ✓
-  'g24e':{h:0,a:0},  // RSA 0-0 KOR  (en curso)
-  'g24f':{h:0,a:0},  // CZE 0-0 MEX  (en curso)
+  'g24a':{h:2,a:1},  // SUI 2-1 CAN
+  'g24b':{h:3,a:1},  // BIH 3-1 QAT
+  'g24c':{h:4,a:2},  // MAR 4-2 HTI
+  'g24d':{h:0,a:3},  // SCO 0-3 BRA
+  'g24e':{h:1,a:0},  // RSA 1-0 KOR (final)
+  'g24f':{h:0,a:2},  // CZE 0-2 MEX (final)
 };
 
 async function loadState(){
   await waitDB();
-  // Partir siempre con resultados conocidos como base
   STATE.results = {...PRELOADED_RESULTS};
   try{
     const data = await window.DB.read('/');
@@ -832,8 +832,20 @@ async function savePredictions(){
 function isLocked(m){
   // Horarios en hora Chile (UTC-4). Bloqueo 10 minutos antes del partido.
   const [h,min] = m.time.split(':').map(Number);
-  const matchUTC = new Date(m.date + 'T' +
-    String(h+4).padStart(2,'0') + ':' + String(min).padStart(2,'0') + ':00Z');
+  // Chile en junio/julio = UTC-4 (sin horario de verano)
+  // Convertir hora Chile a UTC sumando 4 horas
+  let utcH = h + 4;
+  let utcDay = m.date;
+  if(utcH >= 24){
+    utcH -= 24;
+    // Sumar un día
+    const d = new Date(m.date + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() + 1);
+    utcDay = d.toISOString().slice(0,10);
+  }
+  const matchUTC = new Date(utcDay + 'T' +
+    String(utcH).padStart(2,'0') + ':' +
+    String(min).padStart(2,'0') + ':00Z');
   const lockTime = new Date(matchUTC.getTime() - 10 * 60 * 1000);
   return new Date() >= lockTime;
 }
@@ -885,31 +897,44 @@ function renderMatches(email){
     const isTBD=m.home.startsWith('TBD');
     if(m.phase&&m.phase!==lastPhase){html+=`<div class="phase-banner">${m.phase}</div>`;lastPhase=m.phase;lastDay='';}
     if(m.date!==lastDay){html+=`<div class="day-hdr"><span class="day-title">${formatDay(m.date)}</span></div>`;lastDay=m.date;}
-    let badge='';const p=calcPts(b,r);
-    if(r){
-      if(p===5)badge=`<span class="badge badge-exact">🎯 Exacto +5</span>`;
-      else if(p===2)badge=`<span class="badge badge-partial">✓ Resultado +2</span>`;
-      else if(p===0&&b.h!=='')badge=`<span class="badge badge-live">Sin puntos</span>`;
-      else badge=`<span class="badge badge-result">Resultado: ${r.h}–${r.a}</span>`;
+    // Calcular si el partido ya terminó (más de 110 min desde inicio)
+    const [mh2,mm2]=m.time.split(':').map(Number);
+    const matchStartUTC=new Date(m.date+'T'+String(mh2+4).padStart(2,'0')+':'+String(mm2).padStart(2,'0')+':00Z');
+    const minsSinceStart=(Date.now()-matchStartUTC.getTime())/60000;
+    const resultValid = r && minsSinceStart > 110;
+    // Si no tiene predicciones, bloquear los inputs de apuestas
+    const noPred = !pred?.locked;
+
+    const userBet = b.h!==''&&b.a!=='';
+    let badge='';const p=(resultValid&&userBet)?calcPts(b,r):null;
+    if(resultValid){
+      // Siempre mostrar resultado real
+      const realScore=`<span style="font-size:11px;color:var(--muted);font-weight:600">Real: ${r.h}–${r.a}</span>`;
+      if(userBet){
+        if(p===5)badge=`<span class="badge badge-exact">🎯 Exacto +5</span> ${realScore}`;
+        else if(p===2)badge=`<span class="badge badge-partial">✓ Resultado +2</span> ${realScore}`;
+        else badge=`<span class="badge badge-live">Sin puntos</span> ${realScore}`;
+      } else {
+        badge=`<span class="badge badge-result">Sin apuesta</span> ${realScore}`;
+      }
     } else if(locked){
-      const [mh,mm]=m.time.split(':').map(Number);
-      const matchUTC=new Date(m.date+'T'+String(mh+4).padStart(2,'0')+':'+String(mm).padStart(2,'0')+':00Z');
-      const minsElapsed=(Date.now()-matchUTC.getTime())/60000;
-      if(minsElapsed < 0) badge=`<span class="badge badge-open" style="background:#e8f0f5;color:var(--navy)">⏳ Pronto</span>`;
-      else if(minsElapsed < 110) badge=`<span class="badge badge-live">🔴 En juego</span>`;
+      if(minsSinceStart < 0) badge=`<span class="badge badge-open" style="background:#e8f0f5;color:var(--navy)">⏳ Pronto</span>`;
+      else if(minsSinceStart < 110) badge=`<span class="badge badge-live">🔴 En juego</span>`;
       else badge=`<span class="badge badge-result">⏳ Esperando resultado...</span>`;
     }
     else if(b.h!==''&&b.a!=='')badge=`<span class="badge badge-ok">Guardado ✓</span>`;
     else badge=`<span class="badge badge-open">Abierto</span>`;
-    // Si no tiene predicciones, bloquear los inputs de apuestas
-    const noPred = !pred?.locked;
-    let scoreHTML=r
-      ?`<div class="result-display"><strong>${r.h}</strong><span class="sep">–</span><strong>${r.a}</strong></div>`
+    let scoreHTML=resultValid
+      ?(userBet
+        ?`<div class="result-display"><strong>${b.h}</strong><span class="sep">–</span><strong>${b.a}</strong></div>`
+        :`<div class="result-display" style="color:var(--muted);font-size:14px">Sin apuesta</div>`)
       :`<div class="score-zone">
           <input class="score-box" type="number" min="0" max="20" value="${b.h}" ${(locked||isTBD||noPred)?'disabled':''} id="h_${m.id}" onchange="autoSave('${m.id}','${email}')">
           <span class="score-dash">–</span>
           <input class="score-box" type="number" min="0" max="20" value="${b.a}" ${(locked||isTBD||noPred)?'disabled':''} id="a_${m.id}" onchange="autoSave('${m.id}','${email}')">
         </div>`;
+    // Si hay resultado pero el partido no debería haber terminado aún, mostrar inputs bloqueados
+    // (partido en curso — esperando resultado oficial)
     html+=`<div class="match-card${locked?' locked':''}">
       <div class="match-inner">
         <div class="team-block"><span class="flag">${fl(m.home)}</span><span class="team-name">${isTBD?'Por definir':nm(m.home)}</span></div>
