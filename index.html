@@ -884,8 +884,8 @@ function renderMatches(email){
     const isTBD=m.home.startsWith('TBD');
     if(m.phase&&m.phase!==lastPhase){html+=`<div class="phase-banner">${m.phase}</div>`;lastPhase=m.phase;lastDay='';}
     if(m.date!==lastDay){html+=`<div class="day-hdr"><span class="day-title">${formatDay(m.date)}</span></div>`;lastDay=m.date;}
-    let badge='';const p=calcPts(b,r);
-    if(r){
+    let badge='';const p=resultValid?calcPts(b,r):null;
+    if(resultValid){
       if(p===5)badge=`<span class="badge badge-exact">🎯 Exacto +5</span>`;
       else if(p===2)badge=`<span class="badge badge-partial">✓ Resultado +2</span>`;
       else if(p===0&&b.h!=='')badge=`<span class="badge badge-live">Sin puntos</span>`;
@@ -902,13 +902,20 @@ function renderMatches(email){
     else badge=`<span class="badge badge-open">Abierto</span>`;
     // Si no tiene predicciones, bloquear los inputs de apuestas
     const noPred = !pred?.locked;
-    let scoreHTML=r
+    // Solo mostrar resultado si el partido ya debería haber terminado (>95 min desde inicio)
+    const [mh2,mm2]=m.time.split(':').map(Number);
+    const matchStartUTC=new Date(m.date+'T'+String(mh2+4).padStart(2,'0')+':'+String(mm2).padStart(2,'0')+':00Z');
+    const minsSinceStart=(Date.now()-matchStartUTC.getTime())/60000;
+    const resultValid = r && minsSinceStart > 95;
+    let scoreHTML=resultValid
       ?`<div class="result-display"><strong>${r.h}</strong><span class="sep">–</span><strong>${r.a}</strong></div>`
       :`<div class="score-zone">
           <input class="score-box" type="number" min="0" max="20" value="${b.h}" ${(locked||isTBD||noPred)?'disabled':''} id="h_${m.id}" onchange="autoSave('${m.id}','${email}')">
           <span class="score-dash">–</span>
           <input class="score-box" type="number" min="0" max="20" value="${b.a}" ${(locked||isTBD||noPred)?'disabled':''} id="a_${m.id}" onchange="autoSave('${m.id}','${email}')">
         </div>`;
+    // Si hay resultado pero el partido no debería haber terminado aún, mostrar inputs bloqueados
+    // (partido en curso — esperando resultado oficial)
     html+=`<div class="match-card${locked?' locked':''}">
       <div class="match-inner">
         <div class="team-block"><span class="flag">${fl(m.home)}</span><span class="team-name">${isTBD?'Por definir':nm(m.home)}</span></div>
